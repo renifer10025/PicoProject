@@ -51,7 +51,6 @@ int main()
 {
     //multicore_launch_core1(Blink);
 
-
     Joystick joystick(26, 27, 22);
     RotaryEncoder RotEnc(15, 14, 13);
     Display display(128, 32, displayAddress, DisplaySDA, DisplaySCL);
@@ -118,10 +117,28 @@ int main()
     gpio_put(LED, OFF);
     display.RandomPixelTest(10, 512, 20, area);
 
+    /* FlashLED();    
+
+    for (uint i = 0; i < 4; i++)
+        for (uint j = 0; j < 4; j++)
+            display.SetPixelState(100 + j, 12 + i, 1);
+
+    FlashLED(); */
+
+    for (uint i = 0; i < display.GetDisplayWidth(); i++)
+        display.SwitchPixelState(i, 9);
+
+    FlashLED();
+    
+    display.ZeroDisplay();
+
+    display.AddTextToBuffer("damian szymecki", 0, 0);
+    
+    display.CalculateReducedDisplayBuffer();
     ptr = display.GetReducedDisplayBuffer();
     display.render(ptr, &area);
 
-    display.AddTextToBuffer("Damian Szymecki", 0, 0);
+    sleep_ms(1000);
 
     uint RGB_LED_PWM = 10;
     uint BuzzerPWM = 10;

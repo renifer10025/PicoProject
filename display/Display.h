@@ -75,7 +75,10 @@ public:
 	Display(uint Width, uint Height, uint Address, uint SDA_Pin, uint SCL_Pin);
 	Display(uint Width, uint Height, uint Address, uint CommunicationProtocol);
 	~Display();
+
 	static uint GetDisplayCount();
+	static uint IncremetDisplayCount();
+	static uint DecrementDisplayCount();
 	
 	uint GetAddress();
 	uint SetAddress(uint Addr);
@@ -109,11 +112,14 @@ public:
 	//uint ClearAreas(uint TopLeftX, uint TopLeftY, uint BotRightX, uint BotRightY);
 	uint ArrayToBitNumberBE(uint* Arr);
 	uint ArrayToBitNumberLE(uint* Arr);
-	uint* NumberToBitArray(uint Number, uint NumberSize = 8);
+	uint* NumberToBitArray(uint Number, uint NumberSize);
+	uint* ReorganizeArray(uint* Arr, uint ArrWidth, uint ArrHeight);
 
 	uint OnBootUp();
 
 	uint* AddTwoArrays(uint* Arr, uint StartCollumn, uint StartRow, uint ArrWidth, uint ArrHeight);
+
+	uint* AddLetter(uint* Arr, uint StartCollumn, uint StartRow, uint ArrWidth, uint ArrHeight);
 
 	uint AddTextToBuffer(std::string Text, uint PosX, uint PosY);
 
@@ -125,11 +131,13 @@ public:
 
 	void oled_send_cmd(uint cmd);
 
+	void oled_send_buf(uint8_t buf[], int buflen);
+
 	void oled_send_buf(uint buf[], int buflen);
 
 	void oled_init();
 
 	void render(uint *buf, struct render_area *area);
-	void render(uint *buf, struct render_area *area);
+	void render(uint *buf);
 	void render();
 };

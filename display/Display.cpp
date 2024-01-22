@@ -22,6 +22,9 @@ Display::Display()
 	Address = 0;
 	CommunicationProtocol = 0;
 	DisplayCount++;
+    CursorCol = 0;
+    CursorRow = 0;
+    IncremetDisplayCount();
 }
 
 
@@ -55,6 +58,8 @@ Display::Display(uint A_Width = -1, uint A_Height = -1, uint A_Address = -1, uin
 		SCL_Pin = A_CLK_Pin;
 
 	CommunicationProtocol = IIC;
+    CursorCol = 0;
+    CursorRow = 0;
 
 	if (SCL_Pin >= 0 && SDA_Pin >= 0 && SCL_Pin != SDA_Pin)
 	{
@@ -69,6 +74,7 @@ Display::Display(uint A_Width = -1, uint A_Height = -1, uint A_Address = -1, uin
 		i2c_init(i2c1, 400 * 1000); //Use i2c port with baud rate of 4Mhz
 		ZeroDisplay();
 	}
+    IncremetDisplayCount();
 }
 
 // Complex constructor
@@ -82,6 +88,9 @@ Display::Display(uint C_Width = 0, uint C_Height = 0, uint C_Address = 0, uint C
     ReducedDisplayBuffer = new uint[C_Width * C_Height / 8]();
 	Address = C_Address;
 	CommunicationProtocol = C_CommunicationProtocol;
+    CursorCol = 0;
+    CursorRow = 0;
+    IncremetDisplayCount();
 }
 
 // Simple destructor
@@ -94,12 +103,27 @@ Display::~Display()
 	//Screen[64][32] = { 0 };
 	Address = 0;
 	DisplayCount--;
+    CursorCol = 0;
+    CursorRow = 0;
+    DecrementDisplayCount();
 }
 
 // Returns the number of active displays
 uint Display::GetDisplayCount()
 {
 	return DisplayCount;
+}
+
+uint Display::IncremetDisplayCount()
+{
+    DisplayCount++;
+    return DisplayCount;
+}
+
+uint Display::DecrementDisplayCount()
+{
+    DisplayCount--;
+    return DisplayCount;
 }
 
 // Prints the DisplayBuffer to the console in selected mode - default mode: 0
@@ -328,7 +352,7 @@ uint Display::ClearArea(uint StartX, uint StartY, uint EndX, uint EndY)
 {
 	for (int i = StartY; i <= EndY; i++)
 		for (int j = StartX; j <= EndX; j++)
-			SetPixelState(i, j, 1);
+			SetPixelState(i, j, 0);
 	return 0;
 }
 
@@ -405,22 +429,6 @@ uint Display::InverseDisplayBuffer()
 	return 0;
 }
 
-// \todo Fix
-uint Display::ClearArea(uint StartX, uint StartY, uint EndX, uint EndY)
-{
-	for (uint i = StartY; i < EndY; i++)
-	{
-		for (uint j = StartX; j < EndX; j++)
-		{
-			if (DisplayBuffer[i * Screen.Height + j] == 1)
-			{
-				SwitchPixelState(i, j);
-			}
-		}
-	}
-	return 0;
-}
-
 
 // Big endian
 // MSB -> LSB
@@ -454,7 +462,7 @@ uint Display::ArrayToBitNumberLE(uint* Arr)
 
 // \warning Remember to use delete[] after done with use of the returned pointer
 // \returns Pointer to an array
-uint* Display::NumberToBitArray(uint Number, uint NumberSize = 8)
+uint* Display::NumberToBitArray(uint Number = 0, uint NumberSize = 8)
 {
     uint* Arr = new uint[NumberSize]();
     uint Aux = 0;
@@ -468,6 +476,20 @@ uint* Display::NumberToBitArray(uint Number, uint NumberSize = 8)
     return Arr;
 }
 
+
+uint* Display::ReorganizeArray(uint* Arr, uint ArrWidth, uint ArrHeight)
+{
+    uint* ptr = new uint[ArrWidth * ArrHeight];
+    for (uint i = 0; i < ArrHeight; i++)
+        for (uint j = 0; j < ArrWidth; j++)
+            ptr[j * ArrWidth + i] = Arr[i * ArrWidth + j];
+
+    for (uint i = 0; i < ArrHeight * ArrWidth; i++)
+        Arr[i] = ptr[i];
+        
+    delete[] ptr;
+    return Arr;
+}
 
 // \ ss
 uint Display::OnBootUp()
@@ -484,359 +506,406 @@ uint* Display::AddTwoArrays(uint* Arr, uint StartCollumn, uint StartRow, uint Ar
                 if (i >= StartCollumn && i < StartRow + ArrHeight)
                     DisplayBuffer[i * Screen.Width + j] = Arr[(j - StartCollumn) * ArrWidth + (StartCollumn - j)];
 
+    CursorCol++;
+    return DisplayBuffer;
+}
+
+uint* Display::AddLetter(uint* Arr, uint StartCollumn, uint StartRow, uint ArrWidth = 8, uint ArrHeight = 8)
+{
+    
+    if (CursorRow >= Screen.Width)
+    {
+        CursorRow = 0;
+        CursorCol += 8;
+    }
+    
+    uint* LetterArr = new uint[ArrWidth * ArrHeight]();
+    uint* ptr = nullptr;
+    
+    for (int i = 0; i < ArrHeight; i++)
+    {
+        ptr = NumberToBitArray(Arr[i]);
+        for (int j = 0; j < ArrWidth; j++)
+            LetterArr[i * ArrWidth + j] = ptr[j];
+    }
+    delete[] ptr;
+    //ReorganizeArray(LetterArr, ArrWidth, ArrHeight);
+                
+    for (uint i = 0; i < Screen.Height; i++)// i = Collumn
+        for (uint j = 0; j < Screen.Width; j++)// j = Row
+            if (j >= CursorRow && j < CursorRow + ArrHeight)
+                if (i >= CursorCol && i < CursorCol + ArrWidth)
+                {
+                    uint LetterArrIndex = (j - CursorRow) * ArrWidth + (i - CursorCol);
+                    uint DisplayBufferIndex = i * Screen.Width + j;
+                    DisplayBuffer[DisplayBufferIndex] = LetterArr[LetterArrIndex];
+                }
+
+    delete[] LetterArr;
+    CursorRow += 8;
     return DisplayBuffer;
 }
 
 
-// 
+// Adds text to buffer
+// For now works with lower case text
 uint Display::AddTextToBuffer(std::string Str, uint PosX = 0, uint PosY = 0)
-{
+{   
+    if (PosX <= (Screen.Width - 1))
+        CursorCol = PosX;
+    if (PosY <= (Screen.Height - 1))
+        CursorRow = PosY;
+
     for (int iter = 0; iter < Str.length(); iter++)
     {
         switch (Str[iter])
         {
-        case 'A':
-            AddTwoArrays(a, PosX, PosY, 8, 8);
+        case 'a':
+            AddLetter(a, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ą':
-            AddTwoArrays(a_, PosX, PosY, 8, 8);
+        case 'ą':
+            AddLetter(a_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'B':
-            AddTwoArrays(b, PosX, PosY, 8, 8);
+        case 'b':
+            AddLetter(b, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'C':
-            AddTwoArrays(c, PosX, PosY, 8, 8);
+        case 'c':
+            AddLetter(c, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ć':
-            AddTwoArrays(c_, PosX, PosY, 8, 8);
+        case 'ć':
+            AddLetter(c_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'D':
-            AddTwoArrays(d, PosX, PosY, 8, 8);
+        case 'd':
+            AddLetter(d, CursorCol, CursorRow);
             break;
 
-        case 'E':
-            AddTwoArrays(e, PosX, PosY, 8, 8);
+        case 'e':
+            AddLetter(e, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ę':
-            AddTwoArrays(e_, PosX, PosY, 8, 8);
+        case 'ę':
+            AddLetter(e_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'F':
-            AddTwoArrays(f, PosX, PosY, 8, 8);
+        case 'f':
+            AddLetter(f, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'G':
-            AddTwoArrays(g, PosX, PosY, 8, 8);
+        case 'g':
+            AddLetter(g, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'H':
-            AddTwoArrays(h, PosX, PosY, 8, 8);
+        case 'h':
+            AddLetter(h, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'I':
-            AddTwoArrays(i, PosX, PosY, 8, 8);
+        case 'i':
+            AddLetter(i, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'J':
-            AddTwoArrays(j, PosX, PosY, 8, 8);
+        case 'j':
+            AddLetter(j, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'K':
-            AddTwoArrays(k, PosX, PosY, 8, 8);
+        case 'k':
+            AddLetter(k, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'L':
-            AddTwoArrays(l, PosX, PosY, 8, 8);
+        case 'l':
+            AddLetter(l, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ł':
-            AddTwoArrays(l_, PosX, PosY, 8, 8);
+        case 'ł':
+            AddLetter(l_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'M':
-            AddTwoArrays(m, PosX, PosY, 8, 8);
+        case 'm':
+            AddLetter(m, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'N':
-            AddTwoArrays(n, PosX, PosY, 8, 8);
+        case 'n':
+            AddLetter(n, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ń':
-            AddTwoArrays(n_, PosX, PosY, 8, 8);
+        case 'ń':
+            AddLetter(n_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'O':
-            AddTwoArrays(o, PosX, PosY, 8, 8);
+        case 'o':
+            AddLetter(o, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ó':
-            AddTwoArrays(o_, PosX, PosY, 8, 8);
+        case 'ó':
+            AddLetter(o_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'P':
-            AddTwoArrays(p, PosX, PosY, 8, 8);
+        case 'p':
+            AddLetter(p, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Q':
-            AddTwoArrays(q, PosX, PosY, 8, 8);
+        case 'q':
+            AddLetter(q, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'R':
-            AddTwoArrays(r, PosX, PosY, 8, 8);
+        case 'r':
+            AddLetter(r, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'S':
-            AddTwoArrays(s, PosX, PosY, 8, 8);
+        case 's':
+            AddLetter(s, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ś':
-            AddTwoArrays(s_, PosX, PosY, 8, 8);
+        case 'ś':
+            AddLetter(s_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'T':
-            AddTwoArrays(t, PosX, PosY, 8, 8);
+        case 't':
+            AddLetter(t, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'U':
-            AddTwoArrays(u, PosX, PosY, 8, 8);
+        case 'u':
+            AddLetter(u, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'W':
-            AddTwoArrays(w, PosX, PosY, 8, 8);
+        case 'w':
+            AddLetter(w, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'V':
-            AddTwoArrays(v, PosX, PosY, 8, 8);
+        case 'v':
+            AddLetter(v, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'X':
-            AddTwoArrays(x, PosX, PosY, 8, 8);
+        case 'x':
+            AddLetter(x, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Y':
-            AddTwoArrays(y, PosX, PosY, 8, 8);
+        case 'y':
+            AddLetter(y, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Z':
-            AddTwoArrays(z, PosX, PosY, 8, 8);
+        case 'z':
+            AddLetter(z, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ź':
-            AddTwoArrays(z_, PosX, PosY, 8, 8);
+        case 'ź':
+            AddLetter(z_, CursorCol, CursorRow, 8, 8);
             break;
 
-        case 'Ż':
-            AddTwoArrays(z__, PosX, PosY, 8, 8);
+        case 'ż':
+            AddLetter(z__, CursorCol, CursorRow, 8, 8);
             break;
 
 //  Numbers
 
         case '1':
-            AddTwoArrays(one, PosX, PosY, 8, 8);
+            AddLetter(one, CursorCol, CursorRow, 8, 8);
             break;
 
         case '2':
-            AddTwoArrays(two, PosX, PosY, 8, 8);
+            AddLetter(two, CursorCol, CursorRow, 8, 8);
             break;
 
         case '3':
-            AddTwoArrays(three, PosX, PosY, 8, 8);
+            AddLetter(three, CursorCol, CursorRow, 8, 8);
             break;
 
         case '4':
-            AddTwoArrays(four, PosX, PosY, 8, 8);
+            AddLetter(four, CursorCol, CursorRow, 8, 8);
             break;
 
         case '5':
-            AddTwoArrays(five, PosX, PosY, 8, 8);
+            AddLetter(five, CursorCol, CursorRow, 8, 8);
             break;
 
         case '6':
-            AddTwoArrays(six, PosX, PosY, 8, 8);
+            AddLetter(six, CursorCol, CursorRow, 8, 8);
             break;
 
         case '7':
-            AddTwoArrays(seven, PosX, PosY, 8, 8);
+            AddLetter(seven, CursorCol, CursorRow, 8, 8);
             break;
             
         case '8':
-            AddTwoArrays(eight, PosX, PosY, 8, 8);
+            AddLetter(eight, CursorCol, CursorRow, 8, 8);
             break;
         
         case '9':
-            AddTwoArrays(nine, PosX, PosY, 8, 8);
+            AddLetter(nine, CursorCol, CursorRow, 8, 8);
             break;
 
         case '0':
-            AddTwoArrays(zero, PosX, PosY, 8, 8);
+            AddLetter(zero, CursorCol, CursorRow, 8, 8);
             break;
 
 //  Symbols
 
         case '<':
-            AddTwoArrays(less, PosX, PosY, 8, 8);
+            AddLetter(less, CursorCol, CursorRow, 8, 8);
             break;
             
         case '>':
-            AddTwoArrays(more, PosX, PosY, 8, 8);
+            AddLetter(more, CursorCol, CursorRow, 8, 8);
             break;
         
         case '/':
-            AddTwoArrays(back_slash, PosX, PosY, 8, 8);
+            AddLetter(back_slash, CursorCol, CursorRow, 8, 8);
             break;
 
         case '\\':
-            AddTwoArrays(slash, PosX, PosY, 8, 8);
+            AddLetter(slash, CursorCol, CursorRow, 8, 8);
             break;
 
         case '?':
-            AddTwoArrays(question_mark, PosX, PosY, 8, 8);
+            AddLetter(question_mark, CursorCol, CursorRow, 8, 8);
             break;
             
         case '.':
-            AddTwoArrays(period, PosX, PosY, 8, 8);
+            AddLetter(period, CursorCol, CursorRow, 8, 8);
             break;
         
         case ',':
-            AddTwoArrays(comma, PosX, PosY, 8, 8);
+            AddLetter(comma, CursorCol, CursorRow, 8, 8);
             break;
 
         case '|':
-            AddTwoArrays(bar, PosX, PosY, 8, 8);
+            AddLetter(bar, CursorCol, CursorRow, 8, 8);
             break;
 
         case '[':
-            AddTwoArrays(square_bracket_open, PosX, PosY, 8, 8);
+            AddLetter(square_bracket_open, CursorCol, CursorRow, 8, 8);
             break;
             
         case ']':
-            AddTwoArrays(square_bracket_close, PosX, PosY, 8, 8);
+            AddLetter(square_bracket_close, CursorCol, CursorRow, 8, 8);
             break;
         
         case '{':
-            AddTwoArrays(curly_bracket_open, PosX, PosY, 8, 8);
+            AddLetter(curly_bracket_open, CursorCol, CursorRow, 8, 8);
             break;
 
         case '}':
-            AddTwoArrays(curly_bracket_close, PosX, PosY, 8, 8);
+            AddLetter(curly_bracket_close, CursorCol, CursorRow, 8, 8);
             break;
 
         case '\'':
-            AddTwoArrays(back_slash, PosX, PosY, 8, 8);
+            AddLetter(back_slash, CursorCol, CursorRow, 8, 8);
             break;
             
         case '"':
-            AddTwoArrays(quote, PosX, PosY, 8, 8);
+            AddLetter(quote, CursorCol, CursorRow, 8, 8);
             break;
         
         case ':':
-            AddTwoArrays(colon, PosX, PosY, 8, 8);
+            AddLetter(colon, CursorCol, CursorRow, 8, 8);
             break;
 
         case ';':
-            AddTwoArrays(semicolon, PosX, PosY, 8, 8);
+            AddLetter(semicolon, CursorCol, CursorRow, 8, 8);
             break;
 
         case '`':
-            AddTwoArrays(backquote, PosX, PosY, 8, 8);
+            AddLetter(backquote, CursorCol, CursorRow, 8, 8);
             break;
             
         case '~':
-            AddTwoArrays(tilde, PosX, PosY, 8, 8);
+            AddLetter(tilde, CursorCol, CursorRow, 8, 8);
             break;
         
         case '!':
-            AddTwoArrays(exclanation_mark, PosX, PosY, 8, 8);
+            AddLetter(exclanation_mark, CursorCol, CursorRow, 8, 8);
             break;
 
         case '@':
-            AddTwoArrays(at, PosX, PosY, 8, 8);
+            AddLetter(at, CursorCol, CursorRow, 8, 8);
             break;
 
         case '#':
-            AddTwoArrays(hash, PosX, PosY, 8, 8);
+            AddLetter(hash, CursorCol, CursorRow, 8, 8);
             break;
             
         case '$':
-            AddTwoArrays(dollar, PosX, PosY, 8, 8);
+            AddLetter(dollar, CursorCol, CursorRow, 8, 8);
             break;
         
         case '%':
-            AddTwoArrays(percent, PosX, PosY, 8, 8);
+            AddLetter(percent, CursorCol, CursorRow, 8, 8);
             break;
 
         case '^':
-            AddTwoArrays(cater, PosX, PosY, 8, 8);
+            AddLetter(cater, CursorCol, CursorRow, 8, 8);
             break;
 
         case '&':
-            AddTwoArrays(ampersand, PosX, PosY, 8, 8);
+            AddLetter(ampersand, CursorCol, CursorRow, 8, 8);
             break;
             
         case '*':
-            AddTwoArrays(asterisk, PosX, PosY, 8, 8);
+            AddLetter(asterisk, CursorCol, CursorRow, 8, 8);
             break;
         
         case '(':
-            AddTwoArrays(parenthesis_open, PosX, PosY, 8, 8);
+            AddLetter(parenthesis_open, CursorCol, CursorRow, 8, 8);
             break;
 
         case ')':
-            AddTwoArrays(parenthesis_close, PosX, PosY, 8, 8);
+            AddLetter(parenthesis_close, CursorCol, CursorRow, 8, 8);
             break;
 
         case '_':
-            AddTwoArrays(underscore, PosX, PosY, 8, 8);
+            AddLetter(underscore, CursorCol, CursorRow, 8, 8);
             break;
             
         case '-':
-            AddTwoArrays(dash, PosX, PosY, 8, 8);
+            AddLetter(dash, CursorCol, CursorRow, 8, 8);
             break;
 
         case '+':
-           AddTwoArrays(plus, PosX, PosY, 8, 8);
+           AddLetter(plus, CursorCol, CursorRow, 8, 8);
             break;
             
         case '=':
-            AddTwoArrays(equals, PosX, PosY, 8, 8);
+            AddLetter(equals, CursorCol, CursorRow, 8, 8);
+            break;
+
+        case ' ':
+            AddLetter(space, CursorCol, CursorRow, 8, 8);
             break;
 
 // Arrows
 
         case 'Arrow_up':
-            AddTwoArrays(arrow_up, PosX, PosY, 8, 8);
+            AddLetter(arrow_up, CursorCol, CursorRow, 8, 8);
             break;
         
         case 'Arrow_down':
-            AddTwoArrays(arrow_down, PosX, PosY, 8, 8);
+            AddLetter(arrow_down, CursorCol, CursorRow, 8, 8);
             break;
         
         case 'Arrow_left':
-            AddTwoArrays(arrow_left, PosX, PosY, 8, 8);
+            AddLetter(arrow_left, CursorCol, CursorRow, 8, 8);
             break;
         
         case 'Arrow_right':
-            AddTwoArrays(arrow_right, PosX, PosY, 8, 8);
+            AddLetter(arrow_right, CursorCol, CursorRow, 8, 8);
             break;
         
 // Hearts
 
         case 'Heart_full':
-            AddTwoArrays(heart_full, PosX, PosY, 8, 8);
+            AddLetter(heart_full, CursorCol, CursorRow, 8, 8);
             break;
 
         case 'Heart_half':
-            AddTwoArrays(heart_half, PosX, PosY, 8, 8);
+            AddLetter(heart_half, CursorCol, CursorRow, 8, 8);
             break;
 
         case 'Heart_empty':
-            AddTwoArrays(heart_empty, PosX, PosY, 8, 8);
+            AddLetter(heart_empty, CursorCol, CursorRow, 8, 8);
             break;
 
 // Animated
@@ -862,7 +931,7 @@ uint Display::AddTextToBuffer(std::string Str, uint PosX = 0, uint PosY = 0)
             break;
 
         default:    //  UNKNOWN CHARACTER
-            AddTwoArrays(unknown_character, PosX, PosY, 8, 8);
+            AddTwoArrays(unknown_character, CursorCol, CursorRow, 8, 8);
             break;
         }
     }
@@ -893,10 +962,34 @@ void Display::oled_send_cmd(uint cmd) {
     // this "data" can be a command or data to follow up a command
 
     // Co = 1, D/C = 0 => the driver expects a command
-    uint buf[2] = {0x80, cmd};
+    uint8_t buf[2] = {0x80, cmd};
 
 	i2c_write_blocking(i2c1,(OLED_ADDR & OLED_WRITE_MODE), buf, 2, false);
 }
+
+
+void Display::oled_send_buf(uint8_t buf[], int buflen) {
+    // in horizontal addressing mode, the column address pointer auto-increments
+    // and then wraps around to the next page, so we can send the entire frame
+    // buffer in one gooooooo!
+
+    // copy our frame buffer into a new buffer because we need to add the control byte
+    // to the beginning
+
+    // TODO find a more memory-efficient way to do this..
+    // maybe break the data transfer into pages?
+    uint8_t* tmp = new uint8_t;
+
+    for (int i = 1; i < buflen + 1; i++) {
+        tmp[i] = buf[i - 1];
+    }
+    // Co = 0, D/C = 1 => the driver expects data to be written to RAM
+    tmp[0] = 0x40;
+    i2c_write_blocking(i2c1, (OLED_ADDR & OLED_WRITE_MODE), tmp, buflen + 1, false);
+
+    delete tmp;
+}
+
 
 void Display::oled_send_buf(uint buf[], int buflen) {
     // in horizontal addressing mode, the column address pointer auto-increments
@@ -908,7 +1001,7 @@ void Display::oled_send_buf(uint buf[], int buflen) {
 
     // TODO find a more memory-efficient way to do this..
     // maybe break the data transfer into pages?
-    uint* tmp = new uint;
+    uint8_t* tmp = new uint8_t;
 
     for (int i = 1; i < buflen + 1; i++) {
         tmp[i] = buf[i - 1];
@@ -992,22 +1085,23 @@ void Display::render(uint *buf, struct render_area *area) {
 }
 
 
-void Display::render(uint *buf, struct render_area *area) {
+void Display::render(uint *buf) {
     // update a portion of the display with a render area
     oled_send_cmd(OLED_SET_COL_ADDR);
-    oled_send_cmd(area->start_col);
-    oled_send_cmd(area->end_col);
+    oled_send_cmd(frame_area.start_col);
+    oled_send_cmd(frame_area.end_col);
 
     oled_send_cmd(OLED_SET_PAGE_ADDR);
-    oled_send_cmd(area->start_page);
-    oled_send_cmd(area->end_page);
+    oled_send_cmd(frame_area.start_page);
+    oled_send_cmd(frame_area.end_page);
 
-    oled_send_buf(buf, area->buflen);
+    oled_send_buf(buf, frame_area.buflen);
 }
 
 
 void Display::render()
 {
+    CalculateReducedDisplayBuffer();
     // update a portion of the display with a render area
     oled_send_cmd(OLED_SET_COL_ADDR);
     oled_send_cmd(frame_area.start_col);
