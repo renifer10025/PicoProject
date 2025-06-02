@@ -1,218 +1,198 @@
-#include <pico/stdlib.h>
-#include <hardware/i2c.h>
+#include "pico/stdlib.h"            //standardowa biblioteka
+#include "pico/multicore.h"         //wątki
 #include <hardware/pwm.h>
-#include <hardware/adc.h>
-#include <pico/multicore.h>
-#include "rotary_encoder.h"
-#include "joystick_module.h"
-#include "display/Display.h"
+#include <hardware/gpio.h>
 #include "Font.h"
-#include "display/Utility.h"
+#include "Display.h"
+#include "Button.h"
+//#include <string>
 
-#include "display/yellow_blue.h"
 
-#define rtcAddress 0x68
-#define displayAddress 0x3C
-#define displayAddress2 0x7B
+#define GPIO_ON 1
+#define GPIO_OFF 0
 
-#define MaxPWMWrap 65535    // Max PWM wrap value is 65536
+#define LED0 25 // On board LED
 
-#define ON 1
-#define OFF 0
+#define Buzzer 22 // Buzzer pin
 
-#define Buzzer 1
-#define RGBLED 9
-#define LED 25
-#define VDD_5V 0
+#define Button0 0 //
+#define Button1 1 //
+#define Button2 2 //
+#define Button3 3 //
+#define Button4 4 //
+#define Button5 5 //
+#define Button6 6 //
+#define Button7 7 // Temporairly tap sensor
+#define Button8 8 //
+#define Button9 9 //
+#define ButtonAux 10 // Auxiliary button pin
 
-#define DisplaySDA 10
-#define DisplaySCL 11
+#define DisplaySDA 18 // Display Data
+#define DisplaySCL 19 // Display Clock
 
-void Blink()
-{
-    while (true)
-    {
-        gpio_put(LED, ON);
-        sleep_ms(50);
-        gpio_put(LED, OFF);
-        sleep_ms(50);
-    }
-}
+//#define MPU6050SDA 18 // Accelerometer Data
+//#define MPU6050SCL 19 // Accelerometer Clock
+#define MPU6050INT 20 // Accelerometer interrupt
 
-void FlashLED()
-{
-    gpio_put(LED, ON);
-    sleep_ms(50);
-    gpio_put(LED, OFF);
-    sleep_ms(50);
-}
+
+void flash(int Duration_ms = 50, int FlashCount = 1);
+void PWMSetup();
+
 
 int main()
 {
-    //multicore_launch_core1(Blink);
 
-    Joystick joystick(26, 27, 22);
-    RotaryEncoder RotEnc(15, 14, 13);
-    Display display(128, 32, displayAddress, DisplaySDA, DisplaySCL);
-    display.ZeroDisplay();
+    gpio_init(LED0);
+    gpio_set_dir(LED0, GPIO_OUT);
 
-    gpio_init(LED);
-    gpio_init(VDD_5V);
-
-    gpio_set_dir(LED, GPIO_OUT);
-    gpio_set_dir(VDD_5V, GPIO_OUT);
-
-    gpio_put(VDD_5V, ON);
-
-    gpio_set_function(Buzzer, GPIO_FUNC_PWM);
-    uint Slice = pwm_gpio_to_slice_num(Buzzer);
-    pwm_set_wrap(Slice, MaxPWMWrap);
-    pwm_set_chan_level(Slice, PWM_CHAN_B, 1);
-    pwm_set_enabled(Slice, true);
-    pwm_set_gpio_level(Buzzer, 0);
-
-    gpio_set_function(RGBLED, GPIO_FUNC_PWM);
-    uint Slice2 = pwm_gpio_to_slice_num(RGBLED);
-    pwm_set_wrap(Slice2, MaxPWMWrap);
-    pwm_set_chan_level(Slice2, PWM_CHAN_A, 1);
-    pwm_set_enabled(Slice2, true);
-    pwm_set_gpio_level(RGBLED, 0);
-
-    gpio_put(LED, ON);
-    sleep_ms(50);
-    gpio_put(LED, OFF);
-    sleep_ms(50);
-
-    render_area area = {start_col: 0, end_col: OLED_WIDTH - 1, start_page: 0, end_page: OLED_NUM_PAGES - 1, buflen : 0};
-    display.SetFrameArea(area);
+    Display display(128, 32, 0x3C, DisplaySDA, DisplaySCL);
+    Button btn7(Button7, 'a', 50);
+    btn7.SetSharedCooldown(0);
+    btn7.SetSharedCooldownLength(0);
+ 
+    display.SetFrameArea(0, 127, 0, 3, 512);
     display.oled_init();
-    display.calc_render_area_buflen(&area);
-    uint buf[OLED_BUF_LEN];
-    //display.fill(buf, 0x00);
+    display.calc_render_area_buflen(&display.GetRenderArea());
+    display.ZeroDisplay();
+    display.render();
     display.oled_send_cmd(0xA4);
-    display.render(buf, &area);
-
-    display.OnBootUp();
-
-    sleep_ms(250);
-
-    display.ZeroDisplay();
-
-    /*for (uint i = 0; i < display.GetDisplayHeight(); i++)
-    {
-        for (uint j = 0; j < display.GetDisplayWidth(); j++)
-        {
-            display.SwitchPixelState(j, i);
-            display.CalculateReducedDisplayBuffer();
-            display.render();
-        }
-    }*/
     
-
-    uint* ptr = new uint[display.GetDisplaySize() / 8]();
-
-    display.RandomPixelTest(10, 512, 20, area);
-    gpio_put(LED, ON);
-    sleep_ms(200);
-    gpio_put(LED, OFF);
-    display.RandomPixelTest(10, 512, 20, area);
-
-    /* FlashLED();    
-
-    for (uint i = 0; i < 4; i++)
-        for (uint j = 0; j < 4; j++)
-            display.SetPixelState(100 + j, 12 + i, 1);
-
-    FlashLED(); */
-
-    for (uint i = 0; i < display.GetDisplayWidth(); i++)
-        display.SwitchPixelState(i, 9);
-
-    FlashLED();
+    
     
     display.ZeroDisplay();
+    display.render();
+      
 
-    display.AddTextToBuffer("damian szymecki", 0, 0);
     
-    display.CalculateReducedDisplayBuffer();
-    ptr = display.GetReducedDisplayBuffer();
-    display.render(ptr, &area);
+    
 
-    sleep_ms(1000);
+    
+    //sleep_ms(500);
 
-    uint RGB_LED_PWM = 10;
-    uint BuzzerPWM = 10;
-    bool Flip = false;
-    int dir = 0;
-    float X = 0;
-    float Y = 0;
-    bool State = false;
-    bool Last = false;
-    bool Switches = false;
-    int CurrentDir = 0;
-    int LastDir = 0;
+    display.AddTextToBuffer("hello!@#", 10, 10);
+    display.InverseDisplayBuffer();
+    display.render();
+    sleep_ms(50);
+
+
+    display.ZeroDisplay();
+    display.render();
+
+
     while (true)
     {
-        dir = RotEnc.CheckStep();
-        X = joystick.GetVRx();
-        Y = joystick.GetVRy();
-        State = joystick.CheckForButtonPress();
-        Flip = joystick.FlipFlopButton(&State, &Last);
-
-        if (joystick.GetFlipFlop() == true)
-            gpio_put(LED, ON);
+        if (btn7.GetCooldown() > 0)
+            gpio_put(LED0, GPIO_ON);
         else
-            gpio_put(LED, OFF);
+            gpio_put(LED0, GPIO_OFF);
 
-        if (dir == 1)
+        if (btn7.CanBePressed() && btn7.IsPressed())
         {
-            if (Flip == true)
-                RGB_LED_PWM += 50;
-            else
-                BuzzerPWM += 50;
-        }
+            display.AddTextToBuffer(btn7.GetButtonSymbolString(), display.GetCursorRow(), display.GetCursorColumn());
+            display.render();
+            display.IncrementCursorColumn(16);
+            display.IncrementCursorRow(8);
 
-        if (dir == -1)
-        {
-            if (Flip == true)
-                RGB_LED_PWM -= 50;
-            else
-                BuzzerPWM -= 50;
+            display.AddTextToBuffer(std::to_string(display.GetCursorRow()), 8, 8);
+            display.render();
+
+            
         }
         
-        pwm_set_gpio_level(Buzzer, BuzzerPWM);
-        pwm_set_gpio_level(RGBLED, RGB_LED_PWM);
-        
 
-        /*if (X > 0.9)
-        {
-            display.fill(buf, 0xC0);
-            CurrentDir = 1;
-        }  
-        if (X < -0.9)
-        {
-            display.fill(buf, 0x30);
-            CurrentDir = -1;
-        }
-        if (Y > 0.9)
-        {
-            display.fill(buf, 0x0C);
-            CurrentDir = 2;
-        }
-        if (Y < -0.9)
-        {
-            display.fill(buf, 0x03);
-            CurrentDir = -2;
-            //display.render(buf, &area);
-        }
-           
-        if (LastDir != CurrentDir)
-            display.render(buf, &area);
-
-        LastDir = CurrentDir;*/
-        
+        btn7.DecrementCooldown();
+        sleep_ms(10);
     }
     
 
-    return 0;
+    
+
+   /*display.SwitchPixelState(10, 10);
+    display.oled_init();
+    display.calc_render_area_buflen(&area);
+    uint buf[OLED_BUF_LEN];
+    display.fill(buf, 0x01);
+    
+    display.render(buf, &area);*/
+
+    /*flash();
+    sleep_ms(500);
+
+    int i = 0;
+    while (true)
+    {
+        display.AddTextToBuffer("a", i, i);
+        display.render(display.CalculateReducedDisplayBuffer(), &area);
+        sleep_ms(100);
+        i++;
+        flash();
+    }*/
+    
+
+    
+    
+
+
+    /*display.SetFrameArea(0, display.GetDisplayWidth() - 1, 0, display.GetDisplayHeight() / 8, 0);
+
+    display.AddTextToBuffer("bruhs", 0, 0);
+
+    display.CalculateReducedDisplayBuffer();
+
+    display.render(display.GetDisplayBuffer());*/
+
+
+    /*display.ZeroDisplay();
+    //display.AddTextToBuffer("hello!", 0, 0);
+    display.AddLetter(a, 5, 5, 8, 8);
+    display.CalculateReducedDisplayBuffer();
+    display.render();
+    flash();
+    flash();
+    sleep_ms(500);
+    flash();
+    flash();
+
+    //multicore_launch_core1(flash);
+
+
+    gpio_init(MPU6050INT);
+
+    
+    gpio_set_dir(Buzzer, GPIO_OUT);
+
+
+    gpio_set_dir(MPU6050INT, GPIO_IN);
+
+    int i = 0;
+    int j = 0;
+    uint* ptr = new uint[display.GetDisplaySize() / 8]();
+
+    display.ZeroDisplay();
+
+    while (true)
+    {
+
+        display.SwitchPixelState(i % display.GetDisplayWidth(), j % display.GetDisplayHeight());
+
+        display.CalculateReducedDisplayBuffer();
+        display.render();
+        i++;
+        j++;
+        sleep_ms(500);
+        flash();
+    }
+    */
+}
+
+void flash(int Duration_ms, int FlashCount)
+{
+    for (int i = 0; i < FlashCount; i++)
+    {
+        gpio_put(LED0, GPIO_ON);
+        sleep_ms(Duration_ms);
+
+        gpio_put(LED0, GPIO_OFF);
+        sleep_ms(Duration_ms);
+    }
 }
